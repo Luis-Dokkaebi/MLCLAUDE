@@ -388,6 +388,14 @@ class Bootloader(ctk.CTkToplevel):
 if __name__ == "__main__":
     import multiprocessing
     multiprocessing.freeze_support()
+
+    # --- Riesgo 1 (2_PLANNING): evitar crash OpenMP (KMP_DUPLICATE_LIB_OK) ---
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
+    # --- TASK-5.1: excepthook global + crash log cifrado (AES-256) ---
+    from src.security.crash_logger import install_global_excepthook
+    install_global_excepthook()
+
     root = ctk.CTk()
     root.withdraw()
     
@@ -401,8 +409,27 @@ if __name__ == "__main__":
     
     try:
         current = ConfigManager.get_active_tenant()
+
+        # --- TASK-4.3: descifrar la BD del Tenant al montarlo (At-Rest Vault) ---
+        from src.security.db_crypto import EncryptedDBVault
+        from config.config import get_db_path
+        db_vault = EncryptedDBVault(get_db_path())
+        try:
+            db_vault.unlock()
+        except Exception as exc:
+            print(f"[VMS][DBVault] No se pudo descifrar la BD ({type(exc).__name__}). "
+                  f"Se iniciara una BD nueva.")
+
         root.destroy()
         app = AppMain()
         app.mainloop()
+
+        # --- TASK-4.3: re-cifrar la BD en reposo al cerrar el VMS ---
+        try:
+            db_vault.lock()
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            print(f"[VMS][DBVault] Error al cifrar la BD en reposo: {type(exc).__name__}")
     except ValueError:
         print("Saliendo de forma segura. Bye.")

@@ -19,15 +19,35 @@ class CameraWorker(threading.Thread):
         # FIX: Usar get_faces_dir() para garantizar la MISMA ruta que usa la UI de registro
         from config.config import get_faces_dir
         faces_dir = get_faces_dir()
-        
+
         self.face_rec = FaceRecognizer(faces_dir=faces_dir)
         self.frame_counter = 0
         self.last_name = "Unknown"
         self.last_name_time = 0
+
+        # --- TASK-5.2: Verificacion de integridad del modelo AI (Anti-Tamper) ---
+        # Si el yolov8n.pt en disco fue reemplazado por un modelo falso/backdoor,
+        # el hash SHA-256 no coincide y el tracking se deshabilita (SPEC 5.2 DoD).
+        self.model_verified = True
+        try:
+            from config.config import MODEL_PATH
+            from src.models.model_verifier import verify_model
+            self.model_verified = verify_model(MODEL_PATH)
+            if not self.model_verified:
+                print(f"[VMS][SECURITY] Modelo AI manipulado en {MODEL_PATH}. "
+                      f"Inferencia DESHABILITADA para cámara {self.camera_id}.")
+        except FileNotFoundError as exc:
+            # Modelo ausente: no podemos verificar -> deshabilitar por seguridad
+            self.model_verified = False
+            print(f"[VMS][SECURITY] No se pudo verificar el modelo AI: {exc}")
         print(f"[CameraWorker] FaceRecognizer cargado. faces_dir={faces_dir}, "
               f"encodings={len(self.face_rec.known_face_names)} rostro(s): {self.face_rec.known_face_names}")
 
     def run(self):
+        # TASK-5.2 DoD: si el modelo fue manipulado, abortar el tracking de inmediato.
+        if not self.model_verified:
+            print(f"[VMS][SECURITY] Cámara {self.camera_id} no inicia: integridad del modelo AI inválida.")
+            return
         self.running = True
         if isinstance(self.camera_id, int):
             cap = cv2.VideoCapture(self.camera_id, cv2.CAP_DSHOW)

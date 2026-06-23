@@ -18,10 +18,35 @@ class DatabaseManager:
             self.db_path = db_path
         self._create_table()
 
+    def _get_connection(self):
+        """
+        Conexion central a SQLite usada por reportes y por el DatabaseWorker
+        asincrono (src/analysis/report_generator.py).
+
+        Aplica las mitigaciones de concurrencia del Riesgo 4 (2_PLANNING):
+        WAL + synchronous=NORMAL + busy_timeout para tolerar lecturas pesadas
+        (export a Excel) simultaneas con inserciones del hilo productor.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+        except sqlite3.DatabaseError:
+            pass
+        return conn
+
     def _create_table(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
+        # Riesgo 4 (2_PLANNING): WAL persiste como propiedad de la BD, habilitando
+        # lectura/escritura concurrente sin "database is locked".
+        try:
+            c.execute("PRAGMA journal_mode=WAL;")
+            c.execute("PRAGMA synchronous=NORMAL;")
+        except sqlite3.DatabaseError:
+            pass
         c.execute('''CREATE TABLE IF NOT EXISTS tracking (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         track_id INTEGER,

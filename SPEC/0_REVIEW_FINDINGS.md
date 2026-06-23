@@ -23,9 +23,9 @@ Las observaciones siguientes **no invalidan** el diseño; corrigen inconsistenci
 El archivo contenía marcadores `<<<<<<< HEAD … ======= … >>>>>>>`, lo que hace fallar `pip install -r requirements.txt`. Además las dos mitades se contradecían (stack B2B fijado vs. stack legacy con `face_recognition`, `reportlab`, `plotly`).
 **Resuelto:** se unificó a la **unión real** de dependencias que el código importa (`face_recognition`, `matplotlib`, `seaborn`, `tkcalendar`, `pillow`, `numpy`) + el stack B2B fijado + `pycryptodome` (usado por `drm.py` y los scripts de keygen). Se eliminaron `reportlab`/`plotly` por no estar importados en `src/`.
 
-### P0-2 ⏳ SQLCipher exigido por la spec, pero el código usa `sqlite3` plano
-SPEC 1.6.3 y TASK-4.3 exigen `pysqlcipher3` + `PRAGMA key`; la auditoría 5.3.2 exige que el `.db` pida contraseña. Sin embargo `src/storage/database_manager.py` llama a `sqlite3.connect()` sin cifrado: la base de datos biométrica está en **texto plano en disco**.
-**Acción pendiente:** o se implementa SQLCipher, o se adopta formalmente el *fallback* de TASK-0.1 (cifrado a nivel de aplicación con `cryptography`). Hoy no existe ninguno de los dos. Ver nota añadida en `4_IMPLEMENTATION` §4.3.
+### P0-2 ✅ SQLCipher exigido por la spec — resuelto vía el fallback autorizado (AES-256 at-rest)
+SPEC 1.6.3 y TASK-4.3 exigen `pysqlcipher3` + `PRAGMA key`; la auditoría 5.3.2 exige que el `.db` aparezca cifrado. `pysqlcipher3` no compila de forma fiable en Windows sin Build Tools/OpenSSL, por lo que se adoptó **formalmente el fallback de TASK-0.1**: cifrado a nivel de aplicación con AES-256-GCM.
+**Resuelto:** `src/security/db_crypto.py::EncryptedDBVault` cifra el `local_tracking.db` completo a `local_tracking.enc_db` en reposo (blob ilegible para DB Browser → cumple 5.3.2), con clave derivada del `Machine_Hash` (WMI). `main_ui` lo descifra al montar el Tenant y lo re-cifra al cerrar. Cobertura: `tests/test_db_encryption.py`. Ver `4_IMPLEMENTATION` §4.6.
 
 ### P0-3 ✅ El snippet de referencia enseña el anti-patrón que la spec prohíbe
 En `4_IMPLEMENTATION` §4.3 el ejemplo hacía `conn.execute(f"PRAGMA key = '{self.encryption_key}';")` — interpolación por f-string en SQL, justo lo prohibido por la directiva anti-vibe-hacking §4.0(#3) y por la auditoría A03.
@@ -85,8 +85,8 @@ Si la BD se cifra con `Machine_Hash` y el cliente cambia disco/placa, la licenci
 ### P3-1 ⏳ 16 cámaras con YOLO + face_recognition en CPU
 El GIL impide paralelismo real de inferencia CPU-bound entre *threads*. El skip-frame ayuda, pero un modelo por hilo no escala. Recomendación: definir un **pool de inferencia compartido** (o `multiprocessing`) y publicar números realistas de cámaras por perfil de hardware.
 
-### P3-2 ⏳ Concurrencia SQLite mitigada solo en el papel
-El riesgo (lock/corrupción) está bien identificado (WAL + reintentos), pero `database_manager.py` abre `sqlite3.connect()` por método **sin** `PRAGMA journal_mode=WAL`. Llevar la mitigación al código.
+### P3-2 ✅ Concurrencia SQLite — WAL llevado al código
+`database_manager.py` ahora aplica `PRAGMA journal_mode=WAL` + `synchronous=NORMAL` en `_create_table()` (persiste como propiedad de la BD) y expone `_get_connection()` con `WAL` + `busy_timeout=30000` para el `DatabaseWorker` asíncrono (export Excel concurrente con inserciones del productor).
 
 ---
 
@@ -105,7 +105,7 @@ El riesgo (lock/corrupción) está bien identificado (WAL + reintentos), pero `d
 | ID | Severidad | Estado |
 |---|---|---|
 | P0-1 requirements.txt merge | 🔴 | ✅ Corregido |
-| P0-2 SQLCipher no implementado | 🔴 | ⏳ Pendiente (implementación) |
+| P0-2 SQLCipher no implementado | 🔴 | ✅ Resuelto (fallback AES-256 at-rest) |
 | P0-3 f-string en PRAGMA key (snippet) | 🔴 | ✅ Corregido |
 | P1-1 rutas de Tenant | 🟠 | ✅ Canonizado |
 | P1-2 hash SHA-3 vs SHA-256 | 🟠 | ✅ Unificado |
@@ -116,6 +116,6 @@ El riesgo (lock/corrupción) está bien identificado (WAL + reintentos), pero `d
 | P2-2 HMAC desde hostname | 🟡 | ⏳ Pendiente (código) |
 | P2-3 recovery hardware binding | 🟡 | ⏳ Pendiente (spec+código) |
 | P3-1 16 cámaras CPU / GIL | ⚪ | ⏳ Pendiente (diseño) |
-| P3-2 WAL no aplicado | ⚪ | ⏳ Pendiente (código) |
+| P3-2 WAL no aplicado | ⚪ | ✅ Resuelto (WAL en código) |
 
 Las correcciones documentales (✅) se aplicaron directamente sobre los `SPEC/*.md` correspondientes en este mismo cambio. Los ítems ⏳ requieren trabajo de implementación o una decisión de negocio y quedan como backlog priorizado.

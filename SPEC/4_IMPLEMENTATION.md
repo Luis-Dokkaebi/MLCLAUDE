@@ -404,3 +404,95 @@ El callback devuelto por `DatabaseWorker` cruzará desde el Hilo Secundario al H
         print(f"[{mode.upper()}] {msg}")
 ```
 ```
+
+---
+
+## 4.6 Registro de Implementación — Ejecución Secuencial de Sprints (2026-06-23)
+
+Esta sección documenta la ejecución secuencial completa de las Tareas 1–6 sobre
+la base de código existente. La mayor parte de los Sprints 1–5 ya estaban
+implementados y cubiertos por `tests/`; este registro detalla el trabajo de
+*cierre de brechas* realizado para satisfacer las DoD pendientes (⏳) que
+quedaban registradas en `SPEC/0_REVIEW_FINDINGS.md`.
+
+### Estado de verificación (entorno Linux/CI headless)
+- **115 pruebas de lógica** pasan (Sprints 1, 3, 4, 5 + 16 nuevas).
+- **5 pruebas de Grid View (Sprint 2)** pasan bajo Tkinter real (`Xvfb` + `python3.12`):
+  `tests/test_dashboard_grid.py` (grid NxN dinámico, single-view toggle, consumo
+  asíncrono de colas, transición 0→N cámaras).
+- Fallos **solo ambientales** (no defectos de código): `test_drm_fallback.py`
+  requiere el módulo `wmi` (exclusivo de Windows) y `test_ui_navigation` /
+  `test_sprint5_audit::test_cprofile` instancian `AppMain`, que carga
+  YOLO/torch (no instalable de forma ligera en este contenedor).
+
+### Sprint 1 — Concurrencia (Zero Blocking)  ✅ ya implementado
+`src/tracking/camera_worker.py` (Productor + Drop Frame Protocol con
+`put_nowait`/`queue.Full`, throttle de FPS), colas `queue.Queue(maxsize=10)`,
+y `DatabaseWorker.generate_excel_async` (hilo daemon, callbacks vía `.after`).
+Cobertura: `test_camera_worker_leaks.py`, `test_async_excel.py`.
+
+### Sprint 2 — Fluid UI (CustomTkinter)  ✅ ya implementado
+`src/main_ui.py` (AppMain + `ViewManager`), `src/gui/dashboard.py`
+(grid multiplexor + `<Double-1>` single view), `src/gui/views.py`.
+Cobertura: `test_dashboard_grid.py`, `test_ui_navigation.py`.
+
+### Sprint 3 — Multi-Tenant  ✅ ya implementado
+`config/path_utils.py::ConfigManager` (ruta canónica `Tenants/<ID>/<subdir>`,
+validación anti path-traversal) y `Bootloader` en `main_ui.py`.
+Cobertura: `test_tenant_routing.py`, `test_security_fixes.py`.
+
+### Sprint 4 — DRM / SecOps
+- **TASK-4.1 / 4.2 (DRM RSA-2048 + WMI fingerprint):** ✅ ya implementado en
+  `src/security/drm.py`. Cobertura: `test_drm_rsa_b2b.py`.
+- **TASK-4.3 (BD cifrada):** 🆕 **implementado este ciclo** vía el *fallback
+  autorizado por TASK-0.1* (AES-256-GCM a nivel de aplicación, no SQLCipher
+  nativo, que no compila de forma fiable en Windows sin Build Tools/OpenSSL).
+  - `src/security/db_crypto.py::EncryptedDBVault`: cifra el `local_tracking.db`
+    completo a `local_tracking.enc_db` en reposo y lo descifra al montar el
+    Tenant. El blob `.enc_db` es ilegible para DB Browser (cumple Auditoría
+    5.3.2). Clave AES derivada del `Machine_Hash` (WMI) → indescifrable si se
+    copia a otra PC.
+  - `DatabaseManager._get_connection()`: conexión central con
+    `PRAGMA journal_mode=WAL` + `synchronous=NORMAL` + `busy_timeout` (mitiga
+    Riesgo 4 / resuelve P3-2). Usado por el `DatabaseWorker` asíncrono.
+  - Wiring en `main_ui.py`: `unlock()` al montar Tenant, `lock()` al cerrar.
+  - Cobertura: `test_db_encryption.py` (5 pruebas).
+  - Resuelve `0_REVIEW_FINDINGS` **P0-2** y **P3-2**.
+- **TASK-4.4 (PyArmor en el pipeline):** 🆕 **implementado este ciclo.**
+  - `obfuscate.py`: script pre-build que limpia `build/` + `dist/obfuscated/`
+    y ofusca `src/` + `config/` con `pyarmor gen -O dist/obfuscated
+    --enable-jit --restrict 1`.
+  - `compilar_exe.bat`: reescrito para ejecutar `obfuscate.py` **antes** de
+    `pyinstaller gui_app.spec` (antes saltaba la ofuscación por completo).
+  - `gui_app.spec` ya apuntaba a `dist/obfuscated/src/main_ui.py` y declara los
+    `hiddenimports` de `wmi`/`win32com`/`pywintypes`/`Crypto` (TASK-4.4.5).
+  - Cobertura: `test_obfuscate_pipeline.py`.
+
+### Sprint 5 — Refinamiento B2B / Auditoría
+- **TASK-5.1 (excepthook global + crash log AES-256):** 🆕 **implementado.**
+  `src/security/crash_logger.py`: `install_global_excepthook()` registra el
+  traceback **cifrado** (AES-256-GCM, clave del hardware) en
+  `Config/crash_logs.dat` y muestra solo "Contacte a Soporte B2B".
+  `decrypt_crash_logs()` es la herramienta de soporte. Wiring en `main_ui`
+  `__main__`. Cobertura: `test_crash_logger.py`.
+- **TASK-5.2 (integridad del modelo AI):** 🆕 **implementado.**
+  `src/models/model_verifier.py`: SHA-256 pre-aprobado embebido de `yolov8n.pt`;
+  `CameraWorker` verifica el modelo en `__init__` y `run()` aborta el tracking si
+  fue manipulado. Cobertura: `test_model_verifier.py`.
+- **TASK-5.3 (sanitización de inputs):** ✅ ya implementado (regex anti
+  path-traversal en `ConfigManager.set_active_tenant` y formularios).
+- **TASK-5.4 (stress test de exportación I/O):** ✅ ya implementado
+  (`test_sprint5_audit.py` — 50k registros, UI no bloqueada).
+
+### Sprint 0 — Freeze de dependencias
+- **TASK-0.1:** ✅ `requirements.txt` unificado (P0-1). Nota: este ciclo usa el
+  *fallback* de TASK-0.1 para la BD cifrada (AES-256 vía `pycryptodome`/
+  `cryptography`), por lo que `pysqlcipher3` no es un bloqueante.
+
+### Brechas que permanecen como backlog consciente (no implementadas)
+- **P2-2 (HMAC biométrico desde `platform.node()`):** el *contrato de pruebas*
+  (`test_security_fixes.py::_get_integrity_key`) fija el HMAC al hostname.
+  Migrarlo al `machine_id` del DRM rompería esa prueba; se deja como decisión de
+  diseño explícita (requiere actualizar también la prueba).
+- **P2-1 / P2-3 / P3-1 / Gaps legales:** decisiones de negocio o diseño
+  documentadas en `0_REVIEW_FINDINGS`; fuera del alcance de código de este ciclo.
