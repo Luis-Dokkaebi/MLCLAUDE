@@ -20,16 +20,20 @@ desarrollador (o un Agente de IA) pueda aplicar cada fix **sin ambigüedad**.
 
 ## Veredicto general
 
-**🔴 NO LISTO PARA VENTA.**
+**🟢 BLOQUEANTES RESUELTOS (2026-06-25).** Auditoría original: **🔴 NO LISTO PARA VENTA**.
 
-Existen **3 bloqueantes funcionales** que impiden que el sistema opere correctamente
-hoy (uno de ellos hace que la interfaz gráfica **nunca grabe datos**, dejando todos
-los reportes vacíos), más **3 fallos de seguridad** (incluyendo una inyección SQL y
-un posible bypass del DRM) y problemas de concurrencia y calidad.
+> **Actualización (2026-06-25):** los **10 hallazgos (CR-01…CR-10)** fueron corregidos
+> en este ciclo. Los 3 bloqueantes funcionales (incl. la GUI que nunca grababa datos),
+> los 3 fallos de seguridad (inyección SQL, fuga de `torch.load`, bypass del DRM) y los
+> ítems de concurrencia/calidad están aplicados y verificados con pruebas
+> (`tests/test_tracking_pipeline.py`, `tests/test_report_sql_injection.py`, suite de
+> datos + `test_security_fixes.py`). Ver el estado por CR en cada sección y el resumen
+> al final.
 
-El producto **arranca** pero **no cumple su función principal** (medición de
-asistencia/eficiencia) cuando se usa por la GUI, y expone vectores de ataque que
-contradicen el discurso de seguridad B2B.
+La auditoría original detectó **3 bloqueantes funcionales** (uno hacía que la interfaz
+gráfica **nunca grabe datos**, dejando todos los reportes vacíos), más **3 fallos de
+seguridad** (incluyendo una inyección SQL y un posible bypass del DRM) y problemas de
+concurrencia y calidad — todos ahora corregidos.
 
 | Severidad | Cantidad | IDs |
 |---|---|---|
@@ -576,7 +580,7 @@ los empleados.
 
 - **Archivo:** `config/config.py:42-48`
 - **Severidad:** ⚪ Calidad / mantenibilidad
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — bloque duplicado eliminado; una sola definición de cada constante
 
 ### Problema
 ```python
@@ -615,16 +619,16 @@ CONFIDENCE_THRESHOLD = 0.4
 
 | ID | Archivo:línea | Severidad | Estado | Relación |
 |---|---|---|---|---|
-| CR-01 | `src/main.py:86` | 🔴 Bloqueante | ⏳ | — |
-| CR-04 | `src/tracking/camera_worker.py` | 🔴 Bloqueante | ⏳ | depende de CR-03 |
-| CR-07 | `src/main.py:75,101` | 🔴 Bloqueante | ⏳ | refuerza P1-1 |
-| CR-02 | `src/gui/views.py:301` | 🟠 Seguridad | ⏳ | viola §5.6 #2 |
-| CR-05 | `src/main_ui.py:80-104` | 🟠 Seguridad | ⏳ | — |
-| CR-06 | `src/main_ui.py:402-408` | 🟠 Seguridad | ⏳ | — |
-| CR-03 | `src/storage/database_manager.py` | 🟡 Concurrencia | ⏳ | **reabre P3-2** |
-| CR-09 | `src/main_ui.py:146-151` | 🟡 UX/robustez | ⏳ | roza Prueba 5.1.3 |
-| CR-08 | `src/recognition/face_recognizer.py:20` | ⚪ Calidad | ⏳ | **= P2-2** |
-| CR-10 | `config/config.py:42-48` | ⚪ Calidad | ⏳ | — |
+| CR-01 | `src/main.py:86` | 🔴 Bloqueante | ✅ | — |
+| CR-04 | `src/tracking/camera_worker.py` | 🔴 Bloqueante | ✅ | depende de CR-03 |
+| CR-07 | `src/main.py:75,101` | 🔴 Bloqueante | ✅ | refuerza P1-1 |
+| CR-02 | `src/gui/views.py:301` | 🟠 Seguridad | ✅ | viola §5.6 #2 |
+| CR-05 | `src/main_ui.py:80-104` | 🟠 Seguridad | ✅ | — |
+| CR-06 | `src/main_ui.py:402-408` | 🟠 Seguridad | ✅ | — |
+| CR-03 | `src/storage/database_manager.py` | 🟡 Concurrencia | ✅ | **cierra P3-2** |
+| CR-09 | `src/main_ui.py:146-151` | 🟡 UX/robustez | ✅ | roza Prueba 5.1.3 |
+| CR-08 | `src/recognition/face_recognizer.py:20` | ⚪ Calidad | ✅ | **= P2-2** |
+| CR-10 | `config/config.py:42-48` | ⚪ Calidad | ✅ | — |
 
 ### Orden de implementación recomendado
 1. **CR-03** (WAL en escrituras) — prerrequisito de concurrencia para el resto.
