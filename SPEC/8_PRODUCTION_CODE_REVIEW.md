@@ -47,7 +47,7 @@ contradicen el discurso de seguridad B2B.
 
 - **Archivo:** `src/main.py:86`
 - **Severidad:** 🔴 Bloqueante
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — `config.get_db_path()` + `set_active_tenant(OE_TENANT_ID|'Default')` al inicio de `start_video_stream()`
 
 ### Problema
 ```python
@@ -178,7 +178,7 @@ El `CameraWorker.run()` debe replicar la lógica de negocio de `main.py`. Pasos:
 
 - **Archivo:** `src/main.py:75` y `src/main.py:101`
 - **Severidad:** 🔴 Bloqueante (rompe el aislamiento Multi-Tenant — ver P1-1)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — `config.get_zonas_file()` / `config.get_snapshots_dir()` tenant-aware
 
 ### Problema
 ```python

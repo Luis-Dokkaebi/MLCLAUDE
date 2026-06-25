@@ -31,6 +31,12 @@ def get_bbox_center(xyxy):
     return center_x, center_y
 
 def start_video_stream():
+    # CR-01: el modo headless no pasa por el Bootloader, así que debe seleccionar
+    # un Tenant antes de resolver rutas tenant-aware (get_db_path / get_zonas_file /
+    # get_snapshots_dir). Usar OE_TENANT_ID o "Default".
+    from config.path_utils import ConfigManager
+    ConfigManager.set_active_tenant(os.environ.get('OE_TENANT_ID', 'Default'))
+
     # Selección de fuente de video
     if config.MODE == 'local':
         video_source = config.LOCAL_CAMERA_INDEX
@@ -72,7 +78,8 @@ def start_video_stream():
         return
 
     # Ensure all data directories exist before loading
-    zonas_file = getattr(config, 'ZONAS_FILE', os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'OficinaEficiencia', 'data', 'zonas', 'zonas.json'))
+    # CR-07: usar el getter tenant-aware (ruta canónica Tenants/<ID>/zonas/), no getattr.
+    zonas_file = config.get_zonas_file()
     os.makedirs(os.path.dirname(zonas_file), exist_ok=True)
     if not os.path.exists(zonas_file):
         with open(zonas_file, 'w') as f:
@@ -83,7 +90,7 @@ def start_video_stream():
     detector = PersonDetector(model_path=model_path, confidence_threshold=config.CONFIDENCE_THRESHOLD)
     tracker = PersonTracker()
     zone_checker = ZoneChecker(zones_path=zonas_file)
-    db_manager = DatabaseManager(db_path=config.LOCAL_DB_PATH)
+    db_manager = DatabaseManager(db_path=config.get_db_path())
     
     # Initialize face recognizer
     face_recognizer = FaceRecognizer()
@@ -98,7 +105,8 @@ def start_video_stream():
     track_id_to_name = {}
 
     # Ensure snapshots dir exists
-    snapshots_dir = getattr(config, 'SNAPSHOTS_DIR', os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'OficinaEficiencia', 'data', 'snapshots'))
+    # CR-07: usar el getter tenant-aware (ruta canónica Tenants/<ID>/snapshots/), no getattr.
+    snapshots_dir = config.get_snapshots_dir()
     os.makedirs(snapshots_dir, exist_ok=True)
 
     print("✅ Sistema iniciado. Presiona 'q' para salir.")
