@@ -227,7 +227,7 @@ snapshots_dir = config.get_snapshots_dir()
 
 - **Archivo:** `src/gui/views.py:301`
 - **Severidad:** 🟠 Seguridad (OWASP A03) — contradice la Auditoría 5.6 #2 y la directiva anti-vibe-hacking
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — query con placeholders `?` + `params`, `generate_excel_async(params=...)`, y validación `YYYY-MM-DD`. Cobertura: `tests/test_report_sql_injection.py`
 
 ### Problema
 ```python

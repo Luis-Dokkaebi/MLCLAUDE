@@ -293,21 +293,36 @@ def create_reports_view(workspace):
     report_status = ctk.CTkLabel(frame, text="", font=("Roboto", 13), text_color="#A0A0A0")
     report_status.pack(pady=5, anchor="w")
     
+    import re
+    _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
     def generate_report():
         start = start_entry.get().strip() or "2026-01-01"
         end = end_entry.get().strip() or "2026-12-31"
+
+        # CR-02 (OWASP A03): validar formato de fecha ANTES de usarla — defensa en
+        # profundidad para el SQL y para el nombre de archivo. Rechazar cualquier
+        # cosa que no sea YYYY-MM-DD (bloquea inputs tipo `2026-12-31' OR '1'='1`).
+        if not _DATE_RE.match(start) or not _DATE_RE.match(end):
+            report_status.configure(
+                text="⚠️ Formato de fecha inválido (use YYYY-MM-DD).",
+                text_color="#E74C3C")
+            return
+
         export_dir = get_export_dir()
         output = os.path.join(export_dir, f"Reporte_{start}_a_{end}.xlsx")
-        query = f"SELECT employee_name, date(timestamp) as fecha, zone, inside_zone FROM tracking WHERE date(timestamp) BETWEEN '{start}' AND '{end}'"
-        
+        # CR-02: placeholders `?` + params, nunca f-string con input de la GUI.
+        query = ("SELECT employee_name, date(timestamp) as fecha, zone, inside_zone "
+                 "FROM tracking WHERE date(timestamp) BETWEEN ? AND ?")
+
         report_status.configure(text="⏳ Generando reporte en background...", text_color="#F39C12")
-        
+
         def on_ok(path, rows):
             report_status.configure(text=f"✅ Reporte exportado: {path} ({rows} filas)", text_color="#2ECC71")
         def on_err(e):
             report_status.configure(text=f"❌ Error: {e}", text_color="#E74C3C")
-        
-        worker.generate_excel_async(query, output, on_ok, on_err)
+
+        worker.generate_excel_async(query, output, on_ok, on_err, params=(start, end))
     
     ctk.CTkButton(controls, text="📊 Exportar Excel", fg_color="#2ECC71", hover_color="#27AE60", command=generate_report, height=35).pack(side="left", padx=15, pady=15)
     
