@@ -85,8 +85,9 @@ Si la BD se cifra con `Machine_Hash` y el cliente cambia disco/placa, la licenci
 ### P3-1 ⏳ 16 cámaras con YOLO + face_recognition en CPU
 El GIL impide paralelismo real de inferencia CPU-bound entre *threads*. El skip-frame ayuda, pero un modelo por hilo no escala. Recomendación: definir un **pool de inferencia compartido** (o `multiprocessing`) y publicar números realistas de cámaras por perfil de hardware.
 
-### P3-2 ✅ Concurrencia SQLite — WAL llevado al código
-`database_manager.py` ahora aplica `PRAGMA journal_mode=WAL` + `synchronous=NORMAL` en `_create_table()` (persiste como propiedad de la BD) y expone `_get_connection()` con `WAL` + `busy_timeout=30000` para el `DatabaseWorker` asíncrono (export Excel concurrente con inserciones del productor).
+### P3-2 ⚠️ Concurrencia SQLite — WAL llevado al código (RESOLUCIÓN PARCIAL — REABIERTO)
+`database_manager.py` aplica `PRAGMA journal_mode=WAL` + `synchronous=NORMAL` en `_create_table()` (persiste como propiedad de la BD) y expone `_get_connection()` con `WAL` + `busy_timeout=30000`.
+**⚠️ Reabierto (2026-06-25):** la auditoría de código de producción detectó que **ningún método de escritura usa `_get_connection()`** — `insert_record`, `insert_snapshot`, `insert_state`, `update_attendance`, etc. abren `sqlite3.connect(self.db_path)` directo, **sin** `busy_timeout`. El único consumidor de `_get_connection()` es el `DatabaseWorker` (export). Bajo escrituras concurrentes (productor a ~15 fps) + export, las inserciones fallan con `database is locked` y se pierden registros. Ver **CR-03** en `SPEC/8_PRODUCTION_CODE_REVIEW.md` para el fix detallado.
 
 ---
 
@@ -116,6 +117,6 @@ El GIL impide paralelismo real de inferencia CPU-bound entre *threads*. El skip-
 | P2-2 HMAC desde hostname | 🟡 | ⏳ Pendiente (código) |
 | P2-3 recovery hardware binding | 🟡 | ⏳ Pendiente (spec+código) |
 | P3-1 16 cámaras CPU / GIL | ⚪ | ⏳ Pendiente (diseño) |
-| P3-2 WAL no aplicado | ⚪ | ✅ Resuelto (WAL en código) |
+| P3-2 WAL no aplicado | ⚪ | ⚠️ Parcial — reabierto (ver CR-03 en `8_PRODUCTION_CODE_REVIEW.md`) |
 
 Las correcciones documentales (✅) se aplicaron directamente sobre los `SPEC/*.md` correspondientes en este mismo cambio. Los ítems ⏳ requieren trabajo de implementación o una decisión de negocio y quedan como backlog priorizado.
