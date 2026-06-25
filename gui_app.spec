@@ -186,7 +186,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,                          # Compresion (puede dar falsos positivos AV)
+    upx=False,                          # Compresion (puede dar falsos positivos AV)
     console=True,                      # True para debug B2B, False para produccion
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -203,7 +203,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='OficinaEficiencia_VMS',
 )
