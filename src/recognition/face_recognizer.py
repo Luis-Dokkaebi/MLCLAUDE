@@ -18,7 +18,7 @@ except ImportError:
 
 
 def _get_integrity_key() -> bytes:
-    """Machine-specific HMAC key — binds encodings file to this machine.
+    """Clave HMAC específica de la máquina — liga el archivo de encodings a esta PC.
 
     CR-08 / P2-2: derivar del MISMO `machine_id` (WMI) que usa el DRM, no del
     hostname (`platform.node()`), que es trivialmente modificable (renombrar la PC,

@@ -1,9 +1,10 @@
 """
-CR-04 regression: the shared TrackingPipeline must PERSIST tracking data.
+Regresión CR-04: el TrackingPipeline compartido DEBE PERSISTIR los datos de tracking.
 
-Before CR-04 the GUI worker never wrote to the DB, so reports were always empty.
-These tests exercise the pipeline with lightweight fakes (no cv2/torch/supervision)
-plus the real DatabaseManager + StateManager to prove rows actually land in SQLite.
+Antes de CR-04 el worker de la GUI nunca escribía a la BD, así que los reportes
+salían siempre vacíos. Estas pruebas ejercitan el pipeline con dobles ligeros
+(sin cv2/torch/supervision) más el DatabaseManager + StateManager reales para
+demostrar que las filas realmente aterrizan en SQLite.
 """
 import os
 import sys
@@ -24,7 +25,7 @@ class FakeTracked:
 
 
 class FakeTracker:
-    """Returns a fixed tracked detection regardless of input."""
+    """Devuelve una detección trackeada fija, sin importar la entrada."""
     def __init__(self, boxes, ids):
         self._tracked = FakeTracked(boxes, ids)
     def update(self, person_detections):
@@ -61,19 +62,19 @@ def _make_pipeline(db, zones, face_name=None, **kw):
 
 
 def test_pipeline_persists_tracking_rows(db):
-    """A person inside a configured zone must produce tracking rows in the DB."""
+    """Una persona dentro de una zona configurada debe producir filas en la BD."""
     pipe = _make_pipeline(db, {"ZonaA": True}, face_name="Alice",
                           db_write_interval=1, face_check_interval=1)
-    frame = object()  # never touched (snapshots_dir=None, no cv2 path)
+    frame = object()  # nunca se toca (snapshots_dir=None, sin ruta de cv2)
     for _ in range(3):
         pipe.process(frame, person_detections=None, phones_data=[])
 
     rows = db.get_all_records()
-    assert len(rows) == 3, f"expected 3 tracking rows, got {len(rows)}"
+    assert len(rows) == 3, f"se esperaban 3 filas de tracking, se obtuvieron {len(rows)}"
 
 
 def test_pipeline_records_attendance_for_recognized_employee(db):
-    """StateManager wiring must register attendance for a recognized employee."""
+    """El cableado con StateManager debe registrar asistencia del empleado reconocido."""
     pipe = _make_pipeline(db, {"ZonaA": True}, face_name="Bob",
                           db_write_interval=1, face_check_interval=1)
     pipe.process(object(), None, [])
@@ -81,12 +82,12 @@ def test_pipeline_records_attendance_for_recognized_employee(db):
 
 
 def test_db_write_throttle(db):
-    """With db_write_interval=15, only every 15th frame writes a tracking row."""
+    """Con db_write_interval=15, solo cada 15.º frame escribe una fila de tracking."""
     pipe = _make_pipeline(db, {"ZonaA": True}, face_name="Alice",
                           db_write_interval=15, face_check_interval=10)
     for _ in range(30):
         pipe.process(object(), None, [])
-    # frames 15 and 30 write → 2 rows
+    # los frames 15 y 30 escriben → 2 filas
     assert len(db.get_all_records()) == 2
 
 
@@ -101,7 +102,7 @@ def test_track_data_returned_for_drawing(db):
 
 
 def test_no_zone_no_crash(db):
-    """If no zones are configured, pipeline must not crash (no rows, no error)."""
+    """Sin zonas configuradas, el pipeline no debe romperse (sin filas, sin error)."""
     pipe = _make_pipeline(db, {}, face_name="Alice",
                           db_write_interval=1, face_check_interval=1)
     td = pipe.process(object(), None, [])
