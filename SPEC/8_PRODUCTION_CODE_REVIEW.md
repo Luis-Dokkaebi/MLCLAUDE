@@ -20,16 +20,20 @@ desarrollador (o un Agente de IA) pueda aplicar cada fix **sin ambigüedad**.
 
 ## Veredicto general
 
-**🔴 NO LISTO PARA VENTA.**
+**🟢 BLOQUEANTES RESUELTOS (2026-06-25).** Auditoría original: **🔴 NO LISTO PARA VENTA**.
 
-Existen **3 bloqueantes funcionales** que impiden que el sistema opere correctamente
-hoy (uno de ellos hace que la interfaz gráfica **nunca grabe datos**, dejando todos
-los reportes vacíos), más **3 fallos de seguridad** (incluyendo una inyección SQL y
-un posible bypass del DRM) y problemas de concurrencia y calidad.
+> **Actualización (2026-06-25):** los **10 hallazgos (CR-01…CR-10)** fueron corregidos
+> en este ciclo. Los 3 bloqueantes funcionales (incl. la GUI que nunca grababa datos),
+> los 3 fallos de seguridad (inyección SQL, fuga de `torch.load`, bypass del DRM) y los
+> ítems de concurrencia/calidad están aplicados y verificados con pruebas
+> (`tests/test_tracking_pipeline.py`, `tests/test_report_sql_injection.py`, suite de
+> datos + `test_security_fixes.py`). Ver el estado por CR en cada sección y el resumen
+> al final.
 
-El producto **arranca** pero **no cumple su función principal** (medición de
-asistencia/eficiencia) cuando se usa por la GUI, y expone vectores de ataque que
-contradicen el discurso de seguridad B2B.
+La auditoría original detectó **3 bloqueantes funcionales** (uno hacía que la interfaz
+gráfica **nunca grabe datos**, dejando todos los reportes vacíos), más **3 fallos de
+seguridad** (incluyendo una inyección SQL y un posible bypass del DRM) y problemas de
+concurrencia y calidad — todos ahora corregidos.
 
 | Severidad | Cantidad | IDs |
 |---|---|---|
@@ -47,7 +51,7 @@ contradicen el discurso de seguridad B2B.
 
 - **Archivo:** `src/main.py:86`
 - **Severidad:** 🔴 Bloqueante
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — `config.get_db_path()` + `set_active_tenant(OE_TENANT_ID|'Default')` al inicio de `start_video_stream()`
 
 ### Problema
 ```python
@@ -93,7 +97,7 @@ Ejecutar `python src/main.py` (el pipeline headless de detección/tracking) abor
 
 - **Archivo:** `src/tracking/camera_worker.py` (clase completa) vs. `src/main.py:106-211`
 - **Severidad:** 🔴 Bloqueante (el más grave funcionalmente)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — lógica extraída a `src/tracking/tracking_pipeline.py::TrackingPipeline`, invocada por `main.py` y `CameraWorker`. Cobertura: `tests/test_tracking_pipeline.py`
 
 ### Problema
 Existen **dos pipelines paralelos e inconsistentes**:
@@ -178,7 +182,7 @@ El `CameraWorker.run()` debe replicar la lógica de negocio de `main.py`. Pasos:
 
 - **Archivo:** `src/main.py:75` y `src/main.py:101`
 - **Severidad:** 🔴 Bloqueante (rompe el aislamiento Multi-Tenant — ver P1-1)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — `config.get_zonas_file()` / `config.get_snapshots_dir()` tenant-aware
 
 ### Problema
 ```python
@@ -227,7 +231,7 @@ snapshots_dir = config.get_snapshots_dir()
 
 - **Archivo:** `src/gui/views.py:301`
 - **Severidad:** 🟠 Seguridad (OWASP A03) — contradice la Auditoría 5.6 #2 y la directiva anti-vibe-hacking
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — query con placeholders `?` + `params`, `generate_excel_async(params=...)`, y validación `YYYY-MM-DD`. Cobertura: `tests/test_report_sql_injection.py`
 
 ### Problema
 ```python
@@ -296,7 +300,7 @@ tablas vía `UNION`). Además, fechas con caracteres de ruta podrían afectar el
 
 - **Archivo:** `src/main_ui.py:80-104`
 - **Severidad:** 🟠 Seguridad (deserialización insegura persistente)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — `torch.load` se restaura en `finally` (todos los caminos)
 
 ### Problema
 ```python
@@ -365,7 +369,7 @@ finally:
 
 - **Archivo:** `src/main_ui.py:402-408`
 - **Severidad:** 🟠 Seguridad (evasión de licenciamiento)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — se verifica `lic_win.activated` + re-validación `drm.validate_license()` contra disco; si falla, `sys.exit(0)`
 
 ### Problema
 ```python
@@ -419,7 +423,7 @@ if not drm.validate_license():
 
 - **Archivo:** `src/storage/database_manager.py` — métodos en líneas 107, 116, 125, 133, 142, 165, 174, 183, 192, 205, 350, 366, 388
 - **Severidad:** 🟡 Concurrencia / pérdida de datos
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — todos los métodos usan `self._get_connection()`; grep limpio + stress test sin `OperationalError`
 - **⚠️ Corrige a `0_REVIEW_FINDINGS.md` P3-2:** ese ítem está marcado **✅ Resuelto**,
   pero la resolución es **incompleta**. WAL y `busy_timeout` se aplican en
   `_create_table()` y en `_get_connection()`, pero **ningún método de escritura usa
@@ -475,7 +479,7 @@ registros** de asistencia/tracking. Es un corruptor silencioso de los datos de n
 
 - **Archivo:** `src/main_ui.py:146-151` (`_stop_local_camera`)
 - **Severidad:** 🟡 UX / robustez (roza la Prueba 5.1.3 "Navegación Asíncrona Fluida")
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — sin `time.sleep` en UI; reinicio vía `self.after(500, ...)` + botón "Conectar" deshabilitado durante el cambio
 
 ### Problema
 ```python
@@ -529,8 +533,8 @@ No dormir en el hilo de UI. Opciones (de menor a mayor esfuerzo):
 
 - **Archivo:** `src/recognition/face_recognizer.py:20-23`
 - **Severidad:** ⚪ Calidad / robustez de datos
-- **Estado:** ⏳ Pendiente — **ya registrado como P2-2** en `0_REVIEW_FINDINGS.md`;
-  se reitera aquí con el impacto operativo concreto.
+- **Estado:** ✅ Resuelto (2026-06-25) — `_get_integrity_key` deriva del `machine_id`
+  del DRM (bump a `v2`), consistente con `db_crypto.py`/`crash_logger.py`. Cierra P2-2.
 
 ### Problema
 ```python
@@ -576,7 +580,7 @@ los empleados.
 
 - **Archivo:** `config/config.py:42-48`
 - **Severidad:** ⚪ Calidad / mantenibilidad
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — bloque duplicado eliminado; una sola definición de cada constante
 
 ### Problema
 ```python
@@ -615,16 +619,16 @@ CONFIDENCE_THRESHOLD = 0.4
 
 | ID | Archivo:línea | Severidad | Estado | Relación |
 |---|---|---|---|---|
-| CR-01 | `src/main.py:86` | 🔴 Bloqueante | ⏳ | — |
-| CR-04 | `src/tracking/camera_worker.py` | 🔴 Bloqueante | ⏳ | depende de CR-03 |
-| CR-07 | `src/main.py:75,101` | 🔴 Bloqueante | ⏳ | refuerza P1-1 |
-| CR-02 | `src/gui/views.py:301` | 🟠 Seguridad | ⏳ | viola §5.6 #2 |
-| CR-05 | `src/main_ui.py:80-104` | 🟠 Seguridad | ⏳ | — |
-| CR-06 | `src/main_ui.py:402-408` | 🟠 Seguridad | ⏳ | — |
-| CR-03 | `src/storage/database_manager.py` | 🟡 Concurrencia | ⏳ | **reabre P3-2** |
-| CR-09 | `src/main_ui.py:146-151` | 🟡 UX/robustez | ⏳ | roza Prueba 5.1.3 |
-| CR-08 | `src/recognition/face_recognizer.py:20` | ⚪ Calidad | ⏳ | **= P2-2** |
-| CR-10 | `config/config.py:42-48` | ⚪ Calidad | ⏳ | — |
+| CR-01 | `src/main.py:86` | 🔴 Bloqueante | ✅ | — |
+| CR-04 | `src/tracking/camera_worker.py` | 🔴 Bloqueante | ✅ | depende de CR-03 |
+| CR-07 | `src/main.py:75,101` | 🔴 Bloqueante | ✅ | refuerza P1-1 |
+| CR-02 | `src/gui/views.py:301` | 🟠 Seguridad | ✅ | viola §5.6 #2 |
+| CR-05 | `src/main_ui.py:80-104` | 🟠 Seguridad | ✅ | — |
+| CR-06 | `src/main_ui.py:402-408` | 🟠 Seguridad | ✅ | — |
+| CR-03 | `src/storage/database_manager.py` | 🟡 Concurrencia | ✅ | **cierra P3-2** |
+| CR-09 | `src/main_ui.py:146-151` | 🟡 UX/robustez | ✅ | roza Prueba 5.1.3 |
+| CR-08 | `src/recognition/face_recognizer.py:20` | ⚪ Calidad | ✅ | **= P2-2** |
+| CR-10 | `config/config.py:42-48` | ⚪ Calidad | ✅ | — |
 
 ### Orden de implementación recomendado
 1. **CR-03** (WAL en escrituras) — prerrequisito de concurrencia para el resto.

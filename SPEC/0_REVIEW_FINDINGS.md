@@ -72,8 +72,9 @@ TASK-0.1 fijaba `cryptography` pero `6_KEYGEN_GUIDE`, `drm.py` y los scripts dep
 ### P2-1 ⏳ "Grado militar" / "matemáticamente inquebrantable"
 PyArmor + clave pública embebida **no** es inquebrantable. El vector real no es decompilar `drm.py`, sino **parchear al llamador** (`if drm.is_valid()` → NOP) o hookear en runtime. Se recomienda atenuar el lenguaje a "disuasión razonable contra copia casual". *(Pendiente de decisión del propietario sobre el tono comercial.)*
 
-### P2-2 ⏳ Clave de integridad biométrica débil (`platform.node()`)
-La auditoría F-03 deriva el HMAC del **hostname**, trivialmente modificable, lo que contradice el discurso de "huella de hardware inmutable". Debería derivarse del mismo `machine_id` (WMI) que usa el DRM.
+### P2-2 ✅ Clave de integridad biométrica débil (`platform.node()`) — RESUELTO (CR-08)
+La auditoría F-03 derivaba el HMAC del **hostname**, trivialmente modificable, lo que contradecía el discurso de "huella de hardware inmutable".
+**✅ Resuelto (2026-06-25, CR-08):** `face_recognizer._get_integrity_key()` ahora deriva del mismo `machine_id` (WMI) que usa el DRM, consistente con `db_crypto.py` y `crash_logger.py` (con fallback `uuid.getnode()` y bump de firma `v1→v2`). En Windows (plataforma B2B objetivo) el WMI aporta seriales de hardware → renombrar la PC ya no invalida `encodings.npz`. Cobertura: `tests/test_security_fixes.py` (sigue verde).
 
 ### P2-3 ⏳ Hardware binding sin ruta de recuperación
 Si la BD se cifra con `Machine_Hash` y el cliente cambia disco/placa, la licencia **y** la BD quedan irrecuperables. Falta una spec de *recovery / re-key* (re-emisión de licencia + re-cifrado/migración de la base de datos). Generador garantizado de tickets de soporte en B2B.
@@ -85,9 +86,9 @@ Si la BD se cifra con `Machine_Hash` y el cliente cambia disco/placa, la licenci
 ### P3-1 ⏳ 16 cámaras con YOLO + face_recognition en CPU
 El GIL impide paralelismo real de inferencia CPU-bound entre *threads*. El skip-frame ayuda, pero un modelo por hilo no escala. Recomendación: definir un **pool de inferencia compartido** (o `multiprocessing`) y publicar números realistas de cámaras por perfil de hardware.
 
-### P3-2 ⚠️ Concurrencia SQLite — WAL llevado al código (RESOLUCIÓN PARCIAL — REABIERTO)
+### P3-2 ✅ Concurrencia SQLite — WAL llevado al código (RESUELTO COMPLETO)
 `database_manager.py` aplica `PRAGMA journal_mode=WAL` + `synchronous=NORMAL` en `_create_table()` (persiste como propiedad de la BD) y expone `_get_connection()` con `WAL` + `busy_timeout=30000`.
-**⚠️ Reabierto (2026-06-25):** la auditoría de código de producción detectó que **ningún método de escritura usa `_get_connection()`** — `insert_record`, `insert_snapshot`, `insert_state`, `update_attendance`, etc. abren `sqlite3.connect(self.db_path)` directo, **sin** `busy_timeout`. El único consumidor de `_get_connection()` es el `DatabaseWorker` (export). Bajo escrituras concurrentes (productor a ~15 fps) + export, las inserciones fallan con `database is locked` y se pierden registros. Ver **CR-03** en `SPEC/8_PRODUCTION_CODE_REVIEW.md` para el fix detallado.
+**✅ Resuelto completo (2026-06-25):** se aplicó **CR-03** — **todos** los métodos de lectura/escritura (`insert_record`, `insert_snapshot`, `insert_state`, `update_attendance`, `get_all_records`, `employee_exists`, `save_employee_profile`, `get_all_employee_names`, `get_unique_employees`, `get_attendance_report`, `get_efficiency_report`, `get_employee_snapshots`, `anonymize_employee`, `delete_employee_profile`) más `_create_table()` ahora usan `self._get_connection()` con WAL + `busy_timeout=30000`. Verificado con `grep -n "sqlite3.connect(self.db_path)"` (0 resultados) y prueba de estrés (2 escritores + 1 lector → 1000 filas, 0 `OperationalError`). Ver **CR-03** en `SPEC/8_PRODUCTION_CODE_REVIEW.md`.
 
 ---
 
@@ -114,9 +115,9 @@ El GIL impide paralelismo real de inferencia CPU-bound entre *threads*. El skip-
 | P1-4 pycryptodome en freeze | 🟠 | ✅ Añadido |
 | P1-5 numeraciones duplicadas | 🟠 | ✅ Corregido |
 | P2-1 lenguaje "grado militar" | 🟡 | ⏳ Decisión propietario |
-| P2-2 HMAC desde hostname | 🟡 | ⏳ Pendiente (código) |
+| P2-2 HMAC desde hostname | 🟡 | ✅ Resuelto (CR-08) |
 | P2-3 recovery hardware binding | 🟡 | ⏳ Pendiente (spec+código) |
 | P3-1 16 cámaras CPU / GIL | ⚪ | ⏳ Pendiente (diseño) |
-| P3-2 WAL no aplicado | ⚪ | ⚠️ Parcial — reabierto (ver CR-03 en `8_PRODUCTION_CODE_REVIEW.md`) |
+| P3-2 WAL no aplicado | ⚪ | ✅ Resuelto completo (CR-03) |
 
 Las correcciones documentales (✅) se aplicaron directamente sobre los `SPEC/*.md` correspondientes en este mismo cambio. Los ítems ⏳ requieren trabajo de implementación o una decisión de negocio y quedan como backlog priorizado.

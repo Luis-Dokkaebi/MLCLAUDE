@@ -31,6 +31,12 @@ def get_bbox_center(xyxy):
     return center_x, center_y
 
 def start_video_stream():
+    # CR-01: el modo headless no pasa por el Bootloader, así que debe seleccionar
+    # un Tenant antes de resolver rutas tenant-aware (get_db_path / get_zonas_file /
+    # get_snapshots_dir). Usar OE_TENANT_ID o "Default".
+    from config.path_utils import ConfigManager
+    ConfigManager.set_active_tenant(os.environ.get('OE_TENANT_ID', 'Default'))
+
     # Selección de fuente de video
     if config.MODE == 'local':
         video_source = config.LOCAL_CAMERA_INDEX
@@ -72,7 +78,8 @@ def start_video_stream():
         return
 
     # Ensure all data directories exist before loading
-    zonas_file = getattr(config, 'ZONAS_FILE', os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'OficinaEficiencia', 'data', 'zonas', 'zonas.json'))
+    # CR-07: usar el getter tenant-aware (ruta canónica Tenants/<ID>/zonas/), no getattr.
+    zonas_file = config.get_zonas_file()
     os.makedirs(os.path.dirname(zonas_file), exist_ok=True)
     if not os.path.exists(zonas_file):
         with open(zonas_file, 'w') as f:
@@ -83,7 +90,7 @@ def start_video_stream():
     detector = PersonDetector(model_path=model_path, confidence_threshold=config.CONFIDENCE_THRESHOLD)
     tracker = PersonTracker()
     zone_checker = ZoneChecker(zones_path=zonas_file)
-    db_manager = DatabaseManager(db_path=config.LOCAL_DB_PATH)
+    db_manager = DatabaseManager(db_path=config.get_db_path())
     
     # Initialize face recognizer
     face_recognizer = FaceRecognizer()
@@ -91,15 +98,20 @@ def start_video_stream():
     # Initialize state manager
     state_manager = StateManager(db_manager)
 
-    # Track state: {track_id: {zone_name: was_inside}}
-    zone_state = {}
-    
-    # Track names: {track_id: name}
-    track_id_to_name = {}
-
     # Ensure snapshots dir exists
-    snapshots_dir = getattr(config, 'SNAPSHOTS_DIR', os.path.join(os.environ.get('APPDATA', os.path.expanduser('~')), 'OficinaEficiencia', 'data', 'snapshots'))
+    # CR-07: usar el getter tenant-aware (ruta canónica Tenants/<ID>/snapshots/), no getattr.
+    snapshots_dir = config.get_snapshots_dir()
     os.makedirs(snapshots_dir, exist_ok=True)
+
+    # CR-04: lógica de negocio compartida (tracking + zonas + reconocimiento +
+    # persistencia). El MISMO TrackingPipeline lo usa la GUI (CameraWorker) para
+    # que ambos pipelines no diverjan. Headless reconoce/escribe cada frame.
+    from tracking.tracking_pipeline import TrackingPipeline
+    pipeline = TrackingPipeline(
+        db=db_manager, zone_checker=zone_checker, tracker=tracker,
+        state_manager=state_manager, face_recognizer=face_recognizer,
+        snapshots_dir=snapshots_dir, db_write_interval=1, face_check_interval=1,
+    )
 
     print("✅ Sistema iniciado. Presiona 'q' para salir.")
 
@@ -112,120 +124,29 @@ def start_video_stream():
 
         # Detección y tracking
         detections = detector.detect(frame)
-        
+
         # Separar personas de celulares
-        import numpy as np
         person_detections = detections[detections.class_id == 0]
         phone_detections = detections[detections.class_id == 67]
-        
-        phones_data = [] # Lista de bboxes
+
+        phones_data = []  # Lista de bboxes
         if len(phone_detections) > 0:
             for xyxy in phone_detections.xyxy:
                 phones_data.append(tuple(map(int, xyxy)))
 
-        tracked_detections = tracker.update(person_detections)
+        # CR-04: toda la lógica (tracking IDs, zonas, reconocimiento, snapshots y
+        # persistencia a BD) ocurre en el pipeline compartido.
+        track_data = pipeline.process(frame, person_detections, phones_data, current_time)
 
-        track_data_for_state_manager = []
-
-        # Procesamos cada persona detectada
-        if tracked_detections.tracker_id is not None:
-            for xyxy, track_id in zip(tracked_detections.xyxy, tracked_detections.tracker_id):
-                track_id = int(track_id)
-                x1, y1, x2, y2 = map(int, xyxy)
-                cx, cy = get_bbox_center(xyxy)
-
-                # --- LÓGICA DE RECONOCIMIENTO CONSTANTE ---
-                # Si el ID es nuevo o aún es "Unknown", intentamos reconocerlo
-                current_name = track_id_to_name.get(track_id, "Unknown")
-                
-                # Reconocimiento continuo para corregir falsos "Unknown" (podría hacerse cada X frames)
-                if current_name == "Unknown":
-                    recognized_name = face_recognizer.recognize_face(frame, bbox=(x1, y1, x2, y2))
-                    if recognized_name != "Unknown":
-                        track_id_to_name[track_id] = recognized_name
-                        print(f"✅ ¡Identificado! ID: {track_id} es {recognized_name}")
-                
-                display_name = track_id_to_name.get(track_id, "Unknown")
-                # ------------------------------------------
-
-                results = zone_checker.check(cx, cy)
-                
-                # Encontramos en qué zona está (si está en alguna)
-                current_zone = "Fuera de zona"
-                inside_zone_flag = False
-                for z_name, inside in results.items():
-                    if inside:
-                        current_zone = z_name
-                        inside_zone_flag = True
-                        break
-
-                # Preparamos datos para StateManager
-                track_data_for_state_manager.append({
-                    'name': display_name,
-                    'x': cx,
-                    'y': cy,
-                    'bbox': (x1, y1, x2, y2),
-                    'zone': current_zone,
-                    'inside': inside_zone_flag
-                })
-
-                if track_id not in zone_state:
-                    zone_state[track_id] = {}
-
-                for zone_name, inside in results.items():
-                    inside_zone = int(inside)
-                    
-                    # Check for entry event (Entrada a zona)
-                    was_inside = zone_state[track_id].get(zone_name, False)
-                    
-                    if inside_zone and not was_inside:
-                        # ACABA DE ENTRAR A LA ZONA
-                        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-                        filename = f"{track_id}_{display_name}_{zone_name}_{timestamp_str}.jpg"
-                        filepath = os.path.join(snapshots_dir, filename)
-
-                        try:
-                            # Guardamos la evidencia
-                            cv2.imwrite(filepath, frame)
-                            db_manager.insert_snapshot(track_id, zone_name, filepath, employee_name=display_name)
-                            print(f"📸 Foto guardada: {display_name} entró a {zone_name}")
-                        except Exception as e:
-                            print(f"Error saving snapshot: {e}")
-
-                    # Update state
-                    zone_state[track_id][zone_name] = bool(inside_zone)
-
-                    # Registramos posición en la base de datos
-                    db_manager.insert_record(
-                        track_id=track_id,
-                        x=cx,
-                        y=cy,
-                        zone=zone_name,
-                        inside_zone=inside_zone,
-                        employee_name=display_name
-                    )
-
-                # El dibujo se hará después de calcular el estado general
-
-        # Actualizamos state manager
-        state_manager.process_frame(current_time, track_data_for_state_manager, phones_data)
-
-        # Volvemos a iterar para dibujar colores basados en el nuevo estado
-        if tracked_detections.tracker_id is not None:
-            for xyxy, track_id in zip(tracked_detections.xyxy, tracked_detections.tracker_id):
-                track_id = int(track_id)
-                x1, y1, x2, y2 = map(int, xyxy)
-                display_name = track_id_to_name.get(track_id, "Unknown")
-                
-                # Obtener estado actual
-                current_state = state_manager.get_state(display_name)
-                color = state_manager.get_color_for_state(current_state)
-                
-                # Etiqueta: Nombre - Estado
-                label = f"{display_name} - {current_state}"
-                
-                cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                cv2.putText(frame, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        # Dibujar colores/etiquetas basados en el estado calculado
+        for td in track_data:
+            x1, y1, x2, y2 = td['bbox']
+            display_name = td['name']
+            current_state = state_manager.get_state(display_name)
+            color = state_manager.get_color_for_state(current_state)
+            label = f"{display_name} - {current_state}"
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
         cv2.imshow("Sistema de Monitoreo Completo", frame)
 

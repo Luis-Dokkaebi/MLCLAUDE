@@ -77,31 +77,35 @@ class AppMain(ctk.CTk):
         self.camera_workers = []
         self.camera_queues = {}
         
+        # CR-05: el parche global de torch.load (que fuerza weights_only=False)
+        # DEBE restaurarse en TODOS los caminos. Antes se restauraba solo si YOLO
+        # cargaba sin excepción; si fallaba, torch.load quedaba inseguro toda la
+        # sesión (deserialización RCE persistente). El `finally` cierra la fuga.
+        import torch
+        _original_load = torch.load
+        def _patched_load(*args, **kwargs):
+            kwargs['weights_only'] = False
+            return _original_load(*args, **kwargs)
+        torch.load = _patched_load
         try:
-            import torch
-            _original_load = torch.load
-            def _patched_load(*args, **kwargs):
-                kwargs['weights_only'] = False
-                return _original_load(*args, **kwargs)
-            torch.load = _patched_load
-            
             from ultralytics import YOLO
             from ultralytics.nn.tasks import DetectionModel
-            
+
             if hasattr(torch.serialization, 'add_safe_globals'):
                 try:
                     torch.serialization.add_safe_globals([DetectionModel])
                 except Exception:
                     pass
-            
+
             model = YOLO(MODEL_PATH)
-            torch.load = _original_load
-            
+
         except Exception as e:
             print(f"[VMS] No se pudo cargar YOLO: {e}")
             import tkinter.messagebox
             tkinter.messagebox.showerror("Error Crítico de IA", f"No se pudo cargar el motor YOLO B2B:\n\n{e}\n\nFavor de reportar este problema.")
             model = None
+        finally:
+            torch.load = _original_load  # SIEMPRE se restaura
         
         self.yolo_model = model
         self.view_dashboard = DashboardFrame(self.main_workspace, self.camera_queues)
@@ -144,11 +148,13 @@ class AppMain(ctk.CTk):
             )
 
     def _stop_local_camera(self):
+        # CR-09: NO dormir en el hilo de UI. Los workers son daemon y sueltan el
+        # dispositivo por su cuenta; bloquear con time.sleep congelaba CustomTkinter
+        # 500ms (ventana "No responde") y habilitaba dobles-clic que creaban workers
+        # duplicados. El reinicio se reprograma con .after en _switch_camera.
         for w in self.camera_workers:
             w.stop()
         self.camera_workers.clear()
-        import time
-        time.sleep(0.5)
 
     def on_closing(self):
         for w in self.camera_workers:
@@ -244,11 +250,22 @@ class AppMain(ctk.CTk):
     
     def _switch_camera(self, camera_id):
         self._cam_status_label.configure(text="⏳ Conectando...", text_color="#F39C12")
+        # CR-09: deshabilitar "Conectar" mientras hay un cambio en curso evita el
+        # doble-clic que crea CameraWorkers duplicados compitiendo por la cámara.
+        if hasattr(self, '_cam_connect_btn'):
+            self._cam_connect_btn.configure(state="disabled")
         self.update_idletasks()
-        
+
         self._stop_local_camera()
         self.camera_queues.clear()
+        # No bloquear el hilo de UI: reprogramar el arranque con .after para dar
+        # tiempo a que el worker daemon libere el dispositivo.
+        self.after(500, lambda: self._finish_switch_camera(camera_id))
+
+    def _finish_switch_camera(self, camera_id):
         self._start_local_camera(camera_index=camera_id)
+        if hasattr(self, '_cam_connect_btn'):
+            self._cam_connect_btn.configure(state="normal")
 
 import os
 from config.path_utils import ConfigManager
@@ -403,7 +420,14 @@ if __name__ == "__main__":
     if not drm.validate_license():
         lic_win = LicenseWindow(root, drm)
         root.wait_window(lic_win)
-    
+        # CR-06: no confiar en que `wait_window` implique activación. Si la ventana
+        # se cerró/destruyó sin activar (excepción interna, cierre programático),
+        # abortar. Se re-valida contra disco (fuente de verdad), no solo el flag.
+        if not getattr(lic_win, "activated", False) and not drm.validate_license():
+            import sys
+            print("[VMS] Activación no completada. Cerrando.")
+            sys.exit(0)
+
     bootloader = Bootloader(root)
     root.wait_window(bootloader)
     

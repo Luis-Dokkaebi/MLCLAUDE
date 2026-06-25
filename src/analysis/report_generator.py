@@ -49,16 +49,21 @@ class DatabaseWorker:
         """Inicializa el worker con la conexión a la base de datos (ej. SQLCipher)"""
         self.db = db_manager
 
-    def generate_excel_async(self, query: str, output_path: str, on_success: Callable, on_error: Callable):
-        """Ejecuta un volcado a Excel asincrónicamente usando hilos para Zero-Blocking UI."""
-        
+    def generate_excel_async(self, query: str, output_path: str, on_success: Callable, on_error: Callable, params: tuple = ()):
+        """Ejecuta un volcado a Excel asincrónicamente usando hilos para Zero-Blocking UI.
+
+        CR-02 (OWASP A03): `params` se pasa a pandas como parámetros enlazados
+        (placeholders `?`) para evitar inyección SQL. Nunca interpolar input de la
+        GUI en `query` por f-string.
+        """
+
         def _worker():
             try:
                 # 1. Simular carga inicial conectando al db
                 conn = self.db._get_connection()
-                
+
                 # 2. Cargar en Pandas (puede demorar, de ah de que este en background)
-                df = pd.read_sql_query(query, conn)
+                df = pd.read_sql_query(query, conn, params=params)
                 
                 # 3. Validar si el archivo esta en uso por Excel.exe (PermissionError local)
                 if os.path.exists(output_path):

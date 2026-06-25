@@ -39,10 +39,5 @@ def get_export_dir():
 MODEL_PATH = get_resource_path('yolov8n.pt')
 
 # Otros parámetros generales
-FRAME_SKIP = 1  
-CONFIDENCE_THRESHOLD = 0.4
-
-
-# Otros parámetros generales
-FRAME_SKIP = 1  
+FRAME_SKIP = 1
 CONFIDENCE_THRESHOLD = 0.4
