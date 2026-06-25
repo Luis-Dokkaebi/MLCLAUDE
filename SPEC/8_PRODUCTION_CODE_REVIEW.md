@@ -93,7 +93,7 @@ Ejecutar `python src/main.py` (el pipeline headless de detección/tracking) abor
 
 - **Archivo:** `src/tracking/camera_worker.py` (clase completa) vs. `src/main.py:106-211`
 - **Severidad:** 🔴 Bloqueante (el más grave funcionalmente)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — lógica extraída a `src/tracking/tracking_pipeline.py::TrackingPipeline`, invocada por `main.py` y `CameraWorker`. Cobertura: `tests/test_tracking_pipeline.py`
 
 ### Problema
 Existen **dos pipelines paralelos e inconsistentes**:

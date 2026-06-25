@@ -25,6 +25,36 @@ class CameraWorker(threading.Thread):
         self.last_name = "Unknown"
         self.last_name_time = 0
 
+        # --- CR-04: persistencia de tracking en la GUI ---
+        # Antes el CameraWorker SOLO dibujaba cajas y mostraba el nombre: nunca
+        # escribía a la BD → reportes vacíos. Ahora reutiliza el TrackingPipeline
+        # compartido con main.py (zonas + tracking IDs + asistencia + estados +
+        # snapshots). Se crea de forma tolerante a fallos: si faltan dependencias
+        # nativas (supervision/shapely) o el Tenant no está montado, el worker
+        # sigue mostrando video pero sin persistir (self.pipeline = None).
+        self.pipeline = None
+        try:
+            from config.config import get_db_path, get_zonas_file, get_snapshots_dir
+            from src.storage.database_manager import DatabaseManager
+            from src.zones.zone_checker import ZoneChecker
+            from src.tracking.person_tracker import PersonTracker
+            from src.analysis.state_manager import StateManager
+            from src.tracking.tracking_pipeline import TrackingPipeline
+
+            self.db = DatabaseManager(db_path=get_db_path())
+            self.zone_checker = ZoneChecker(zones_path=get_zonas_file())
+            self.tracker = PersonTracker()
+            self.state_manager = StateManager(self.db)
+            self.pipeline = TrackingPipeline(
+                db=self.db, zone_checker=self.zone_checker, tracker=self.tracker,
+                state_manager=self.state_manager, face_recognizer=self.face_rec,
+                snapshots_dir=get_snapshots_dir(),
+                db_write_interval=15, face_check_interval=10,
+            )
+        except Exception as exc:
+            print(f"[CameraWorker][CR-04] Persistencia deshabilitada "
+                  f"({type(exc).__name__}: {exc}). El video seguirá mostrándose.")
+
         # --- TASK-5.2: Verificacion de integridad del modelo AI (Anti-Tamper) ---
         # Si el yolov8n.pt en disco fue reemplazado por un modelo falso/backdoor,
         # el hash SHA-256 no coincide y el tracking se deshabilita (SPEC 5.2 DoD).
@@ -90,37 +120,46 @@ class CameraWorker(threading.Thread):
             # Inferencia YOLOv8
             results = self.model(frame, verbose=False)
             annotated_frame = results[0].plot() # numpy array (BGR)
-            
-            # --- FACE RECOGNITION (Optimizado para Velocidad y Precision) ---
+
             self.frame_counter += 1
-            
+
             # --- HOT-RELOAD: Detectar nuevos empleados registrados cada ~60 frames (~4s) ---
             if self.frame_counter % 60 == 0:
                 self.face_rec.check_reload()
-            
-            has_person = False
-            for r in results:
-                for box in r.boxes:
-                    if int(box.cls[0]) == 0 and float(box.conf[0]) > 0.4:
-                        has_person = True
-                        break
-                        
-            if has_person:
-                # Detectar solo cada 15 frames para mantener el video fluido
-                if self.frame_counter % 15 == 0:
-                    # Buscamos en todo el frame (sin recortes YOLO) para no confundir a dlib
-                    self.last_name = self.face_rec.recognize_face(frame, bbox=None)
-                    if self.last_name != "Unknown":
+
+            # --- CR-04: PERSISTENCIA + reconocimiento vía pipeline compartido ---
+            # El pipeline trackea IDs, evalúa zonas, reconoce rostros (skip-frame) y
+            # escribe a la BD (tracking/snapshots/asistencia/estados). Envuelto en
+            # try/except para que un fallo de persistencia NUNCA congele el video.
+            if self.pipeline is not None:
+                try:
+                    import supervision as sv
+                    detections = sv.Detections.from_ultralytics(results[0])
+                    person_detections = detections[detections.class_id == 0]
+                    phone_detections = detections[detections.class_id == 67]
+                    phones_data = []
+                    if len(phone_detections) > 0:
+                        for b in phone_detections.xyxy:
+                            phones_data.append(tuple(map(int, b)))
+
+                    track_data = self.pipeline.process(
+                        frame, person_detections, phones_data, time.time())
+
+                    # Banner biométrico en pantalla con el nombre reconocido
+                    known = [td['name'] for td in track_data if td['name'] != "Unknown"]
+                    if known:
+                        self.last_name = known[0]
                         self.last_name_time = time.time()
-                
-                # Dejar el nombre visible en la pantalla por un momento
-                if self.last_name != "Unknown" and (time.time() - self.last_name_time) < 3.0:
-                    label = f"BIOMETRIA VMS: {self.last_name}"
-                    cv2.rectangle(annotated_frame, (10, 10), (500, 60), (0, 0, 0), -1)
-                    cv2.putText(annotated_frame, label, (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 3)
-            else:
-                self.last_name = "Unknown"
-            
+                except Exception as exc:
+                    print(f"[CameraWorker][CR-04] Error de persistencia "
+                          f"({type(exc).__name__}). Video intacto.")
+
+            # Dejar el nombre visible en la pantalla por un momento
+            if self.last_name != "Unknown" and (time.time() - self.last_name_time) < 3.0:
+                label = f"BIOMETRIA VMS: {self.last_name}"
+                cv2.rectangle(annotated_frame, (10, 10), (500, 60), (0, 0, 0), -1)
+                cv2.putText(annotated_frame, label, (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 3)
+
             # --- DROP FRAME PROTOCOL (Anti-Memory Leak) ---
             try:
                 # Intenta encolar sin bloquear. Si esta llena (UI retardada), entra al except
