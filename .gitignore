@@ -1,8 +1,1 @@
-build/
-dist/
-*.exe
-*.dll
-*.dat
-*.pkg
-*.pyz
-__pycache__/
+venv/
