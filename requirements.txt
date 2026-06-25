@@ -1,0 +1,21 @@
+# === Stack B2B (versiones fijadas — ver SPEC/3_TASKS TASK-0.1) ===
+customtkinter==5.2.2
+ultralytics==8.1.15
+opencv-python-headless==4.9.0.80
+supervision==0.18.0
+shapely==2.0.3
+wmi==1.5.1
+pyarmor==8.4.6
+pyinstaller==6.4.0
+pandas==2.2.0
+openpyxl==3.1.2
+cryptography==42.0.5
+pycryptodome==3.20.0
+
+# === Dependencias adicionales requeridas por el código actual (src/) ===
+face_recognition
+numpy
+pillow
+matplotlib
+seaborn
+tkcalendar
