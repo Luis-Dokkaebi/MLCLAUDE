@@ -18,9 +18,21 @@ except ImportError:
 
 
 def _get_integrity_key() -> bytes:
-    """Machine-specific HMAC key — binds encodings file to this machine."""
-    node = platform.node().encode('utf-8', errors='replace')
-    return hashlib.sha256(node + b"_oe_face_integrity_v1").digest()
+    """Machine-specific HMAC key — binds encodings file to this machine.
+
+    CR-08 / P2-2: derivar del MISMO `machine_id` (WMI) que usa el DRM, no del
+    hostname (`platform.node()`), que es trivialmente modificable (renombrar la PC,
+    unirse a un dominio AD) e invalidaría la biometría. Consistente con
+    `db_crypto.py` y `crash_logger.py`. Bump a `v2` para no colisionar con firmas
+    viejas (las `.npz` firmadas con v1 se re-codifican desde las imágenes).
+    """
+    try:
+        from src.security.drm import DRMValidator
+        machine_id = DRMValidator().machine_id
+    except Exception:
+        import uuid
+        machine_id = f"FALLBACK_{uuid.getnode()}"
+    return hashlib.sha256(machine_id.encode("utf-8") + b"_oe_face_integrity_v2").digest()
 
 
 def _sign(data: bytes) -> bytes:

@@ -72,8 +72,9 @@ TASK-0.1 fijaba `cryptography` pero `6_KEYGEN_GUIDE`, `drm.py` y los scripts dep
 ### P2-1 ⏳ "Grado militar" / "matemáticamente inquebrantable"
 PyArmor + clave pública embebida **no** es inquebrantable. El vector real no es decompilar `drm.py`, sino **parchear al llamador** (`if drm.is_valid()` → NOP) o hookear en runtime. Se recomienda atenuar el lenguaje a "disuasión razonable contra copia casual". *(Pendiente de decisión del propietario sobre el tono comercial.)*
 
-### P2-2 ⏳ Clave de integridad biométrica débil (`platform.node()`)
-La auditoría F-03 deriva el HMAC del **hostname**, trivialmente modificable, lo que contradice el discurso de "huella de hardware inmutable". Debería derivarse del mismo `machine_id` (WMI) que usa el DRM.
+### P2-2 ✅ Clave de integridad biométrica débil (`platform.node()`) — RESUELTO (CR-08)
+La auditoría F-03 derivaba el HMAC del **hostname**, trivialmente modificable, lo que contradecía el discurso de "huella de hardware inmutable".
+**✅ Resuelto (2026-06-25, CR-08):** `face_recognizer._get_integrity_key()` ahora deriva del mismo `machine_id` (WMI) que usa el DRM, consistente con `db_crypto.py` y `crash_logger.py` (con fallback `uuid.getnode()` y bump de firma `v1→v2`). En Windows (plataforma B2B objetivo) el WMI aporta seriales de hardware → renombrar la PC ya no invalida `encodings.npz`. Cobertura: `tests/test_security_fixes.py` (sigue verde).
 
 ### P2-3 ⏳ Hardware binding sin ruta de recuperación
 Si la BD se cifra con `Machine_Hash` y el cliente cambia disco/placa, la licencia **y** la BD quedan irrecuperables. Falta una spec de *recovery / re-key* (re-emisión de licencia + re-cifrado/migración de la base de datos). Generador garantizado de tickets de soporte en B2B.
@@ -114,7 +115,7 @@ El GIL impide paralelismo real de inferencia CPU-bound entre *threads*. El skip-
 | P1-4 pycryptodome en freeze | 🟠 | ✅ Añadido |
 | P1-5 numeraciones duplicadas | 🟠 | ✅ Corregido |
 | P2-1 lenguaje "grado militar" | 🟡 | ⏳ Decisión propietario |
-| P2-2 HMAC desde hostname | 🟡 | ⏳ Pendiente (código) |
+| P2-2 HMAC desde hostname | 🟡 | ✅ Resuelto (CR-08) |
 | P2-3 recovery hardware binding | 🟡 | ⏳ Pendiente (spec+código) |
 | P3-1 16 cámaras CPU / GIL | ⚪ | ⏳ Pendiente (diseño) |
 | P3-2 WAL no aplicado | ⚪ | ✅ Resuelto completo (CR-03) |

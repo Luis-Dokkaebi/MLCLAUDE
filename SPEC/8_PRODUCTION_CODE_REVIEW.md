@@ -529,8 +529,8 @@ No dormir en el hilo de UI. Opciones (de menor a mayor esfuerzo):
 
 - **Archivo:** `src/recognition/face_recognizer.py:20-23`
 - **Severidad:** ⚪ Calidad / robustez de datos
-- **Estado:** ⏳ Pendiente — **ya registrado como P2-2** en `0_REVIEW_FINDINGS.md`;
-  se reitera aquí con el impacto operativo concreto.
+- **Estado:** ✅ Resuelto (2026-06-25) — `_get_integrity_key` deriva del `machine_id`
+  del DRM (bump a `v2`), consistente con `db_crypto.py`/`crash_logger.py`. Cierra P2-2.
 
 ### Problema
 ```python
