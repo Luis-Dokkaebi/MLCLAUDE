@@ -38,7 +38,7 @@ class DatabaseManager:
 
     def _create_table(self):
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         # Riesgo 4 (2_PLANNING): WAL persiste como propiedad de la BD, habilitando
         # lectura/escritura concurrente sin "database is locked".
@@ -104,7 +104,7 @@ class DatabaseManager:
         conn.close()
 
     def insert_record(self, track_id, x, y, zone, inside_zone, employee_name=None):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         timestamp = datetime.now().isoformat()
         c.execute("INSERT INTO tracking (track_id, timestamp, x, y, zone, inside_zone, employee_name) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -113,7 +113,7 @@ class DatabaseManager:
         conn.close()
 
     def insert_snapshot(self, track_id, zone, snapshot_path, employee_name=None):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         timestamp = datetime.now().isoformat()
         c.execute("INSERT INTO snapshots (track_id, timestamp, zone, snapshot_path, employee_name) VALUES (?, ?, ?, ?, ?)",
@@ -122,7 +122,7 @@ class DatabaseManager:
         conn.close()
 
     def get_all_records(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         c.execute("SELECT * FROM tracking")
         rows = c.fetchall()
@@ -130,7 +130,7 @@ class DatabaseManager:
         return rows
 
     def insert_state(self, employee_name, state):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         timestamp = datetime.now().isoformat()
         c.execute("INSERT INTO workday_states (employee_name, timestamp, state) VALUES (?, ?, ?)",
@@ -139,7 +139,7 @@ class DatabaseManager:
         conn.close()
 
     def update_attendance(self, employee_name):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
@@ -162,7 +162,7 @@ class DatabaseManager:
 
     def employee_exists(self, name):
         """Verifica si un empleado ya existe (case-insensitive)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         c.execute("SELECT 1 FROM employees WHERE LOWER(employee_name) = LOWER(?)", (name,))
         exists = c.fetchone() is not None
@@ -171,7 +171,7 @@ class DatabaseManager:
 
     def save_employee_profile(self, name, department='', position='', shift=''):
         """Guarda o actualiza el perfil organizacional del empleado."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         c.execute("""INSERT OR REPLACE INTO employees (employee_name, department, position, shift, registration_date)
                      VALUES (?, ?, ?, ?, ?)""",
@@ -181,7 +181,7 @@ class DatabaseManager:
 
     def get_all_employee_names(self):
         """Devuelve los nombres de la tabla employees."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         c.execute("SELECT employee_name FROM employees ORDER BY employee_name ASC")
         rows = c.fetchall()
@@ -190,7 +190,7 @@ class DatabaseManager:
 
     def get_unique_employees(self):
         """Devuelve una lista de nombres de empleados únicos registrados."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         c.execute("SELECT DISTINCT employee_name FROM daily_attendance WHERE employee_name IS NOT NULL AND employee_name != ''")
         rows = c.fetchall()
@@ -202,7 +202,7 @@ class DatabaseManager:
         Obtiene el reporte de asistencia por rango de fechas y filtro opcional de empleado.
         Retorna: Lista de tuplas (empleado, fecha, hora_llegada, hora_salida, horas_totales_str)
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         
         query = '''
@@ -250,7 +250,7 @@ class DatabaseManager:
         Obtiene el reporte de eficiencia calculando tiempos efectivos e inactivos.
         Retorna: Lista de tuplas (empleado, fecha, tiempo_total_str, tiempo_activo_str, eficiencia_str)
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         # Queremos obtener la fecha separada del timestamp
         query = '''
             SELECT employee_name, date(timestamp) as r_date, timestamp, inside_zone 
@@ -347,7 +347,7 @@ class DatabaseManager:
         """
         Devuelve las rutas de snapshots para un empleado en una fecha específica.
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         c.execute("""
             SELECT snapshot_path FROM snapshots
@@ -363,7 +363,7 @@ class DatabaseManager:
         Reemplaza el nombre del empleado por un seudónimo anónimo en todas las tablas
         para preservar las métricas pero eliminar los datos personales (Derecho al olvido).
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         
         # Generar un hash corto o ID anónimo basado en el nombre y el tiempo
@@ -387,7 +387,7 @@ class DatabaseManager:
 
     def delete_employee_profile(self, employee_name):
         """Elimina el registro del empleado de la tabla employees para permitir re-registro."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         c = conn.cursor()
         c.execute("DELETE FROM employees WHERE employee_name = ?", (employee_name,))
         conn.commit()

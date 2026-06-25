@@ -419,7 +419,7 @@ if not drm.validate_license():
 
 - **Archivo:** `src/storage/database_manager.py` — métodos en líneas 107, 116, 125, 133, 142, 165, 174, 183, 192, 205, 350, 366, 388
 - **Severidad:** 🟡 Concurrencia / pérdida de datos
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — todos los métodos usan `self._get_connection()`; grep limpio + stress test sin `OperationalError`
 - **⚠️ Corrige a `0_REVIEW_FINDINGS.md` P3-2:** ese ítem está marcado **✅ Resuelto**,
   pero la resolución es **incompleta**. WAL y `busy_timeout` se aplican en
   `_create_table()` y en `_get_connection()`, pero **ningún método de escritura usa
