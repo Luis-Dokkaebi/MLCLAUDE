@@ -296,7 +296,7 @@ tablas vía `UNION`). Además, fechas con caracteres de ruta podrían afectar el
 
 - **Archivo:** `src/main_ui.py:80-104`
 - **Severidad:** 🟠 Seguridad (deserialización insegura persistente)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — `torch.load` se restaura en `finally` (todos los caminos)
 
 ### Problema
 ```python
@@ -365,7 +365,7 @@ finally:
 
 - **Archivo:** `src/main_ui.py:402-408`
 - **Severidad:** 🟠 Seguridad (evasión de licenciamiento)
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — se verifica `lic_win.activated` + re-validación `drm.validate_license()` contra disco; si falla, `sys.exit(0)`
 
 ### Problema
 ```python
@@ -475,7 +475,7 @@ registros** de asistencia/tracking. Es un corruptor silencioso de los datos de n
 
 - **Archivo:** `src/main_ui.py:146-151` (`_stop_local_camera`)
 - **Severidad:** 🟡 UX / robustez (roza la Prueba 5.1.3 "Navegación Asíncrona Fluida")
-- **Estado:** ⏳ Pendiente
+- **Estado:** ✅ Resuelto (2026-06-25) — sin `time.sleep` en UI; reinicio vía `self.after(500, ...)` + botón "Conectar" deshabilitado durante el cambio
 
 ### Problema
 ```python
